@@ -86,6 +86,12 @@ ldid -S"$REPO_ROOT/JailbreakDaemon/RootHelper.entitlements" "$DAEMON_BIN"
 # is kept verbatim by the bash 3.2 that macOS ships as /bin/bash; only a variable works in both.
 TILDE="~"
 DEB_VERSION="${VERSION//-/$TILDE}"
+PACKAGE_REVISION="${PACKAGE_REVISION:-}"
+if [[ -n "$PACKAGE_REVISION" ]]; then
+	[[ "$PACKAGE_REVISION" =~ ^[A-Za-z0-9.+~]+$ ]] \
+		|| { echo "error: invalid PACKAGE_REVISION: $PACKAGE_REVISION" >&2; exit 1; }
+	DEB_VERSION="$DEB_VERSION-$PACKAGE_REVISION"
+fi
 THEOS_ROOT="${THEOS:-$HOME/theos-roothide}"
 [[ -f "$THEOS_ROOT/makefiles/common.mk" ]] || { echo "error: Theos not found at $THEOS_ROOT" >&2; exit 1; }
 
@@ -234,7 +240,7 @@ EOF
 		FINALPACKAGE=1
 
 	local theos_deb_out="$THEOS_PACKAGE_DIR/${BASE_PACKAGE_IDENTIFIER}_${DEB_VERSION}_${architecture}.deb"
-	local deb_out="$PACKAGE_BUILD_ROOT/SFI-${VERSION}-${architecture}.deb"
+	local deb_out="$PACKAGE_BUILD_ROOT/SFI-${VERSION}${PACKAGE_REVISION:+-$PACKAGE_REVISION}-${architecture}.deb"
 	[[ -f "$theos_deb_out" ]] || { echo "error: Theos did not create $theos_deb_out" >&2; exit 1; }
 	[[ "$(dpkg-deb --field "$theos_deb_out" Architecture)" == "$architecture" ]] \
 		|| { echo "error: unexpected package architecture for $scheme" >&2; exit 1; }

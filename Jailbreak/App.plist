@@ -10,6 +10,19 @@
 	<array>
 		<string>packet-tunnel-provider</string>
 	</array>
+	<key>platform-application</key>
+	<true/>
+	<key>com.apple.CommCenter.fine-grained</key>
+	<array>
+		<string>spi</string>
+		<string>phone</string>
+		<string>identity</string>
+		<string>cellular-plan</string>
+		<string>data-usage</string>
+		<string>data-allowed</string>
+		<string>data-allowed-write</string>
+		<string>preferences-write</string>
+	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.io.nekohasekai.sfajb</string>

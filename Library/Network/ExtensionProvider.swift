@@ -131,6 +131,20 @@ open class ExtensionProvider: NEPacketTunnelProvider {
     }
 
     override open func startTunnel(options startOptions: [String: NSObject]?) async throws {
+        #if JAILBREAK
+            if let bundleIdentifier = Bundle.main.bundleIdentifier {
+                let policyApplied = JailbreakNetworkPolicy.allowWiFiAndCellular(for: [
+                    AppConfiguration.packageName,
+                    bundleIdentifier,
+                ])
+                Self.logger.info("packet tunnel wireless data policy applied: \(policyApplied ? "yes" : "no")")
+                // CommCenter/networkd observes policy changes asynchronously.
+                // Starting remote rule-set downloads in the same scheduling
+                // turn can therefore retain the old deny decision.
+                try await Task.sleep(nanoseconds: 750_000_000)
+            }
+        #endif
+
         let basePath: String
         let workingPath: String
         let tempPath: String

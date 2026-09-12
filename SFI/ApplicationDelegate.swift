@@ -10,6 +10,9 @@ import UserNotifications
 class ApplicationDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private var profileServer: ProfileServer?
     private var reportTransferServer: ReportTransferServer?
+    #if JAILBREAK
+        private var didPrimeNetworkPermissions = false
+    #endif
 
     func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         LibboxPrepareCrashSignalHandlers()
@@ -70,6 +73,20 @@ class ApplicationDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCe
         }
     }
 
+    func applicationDidBecomeActive(_: UIApplication) {
+        #if JAILBREAK
+            guard !didPrimeNetworkPermissions else {
+                return
+            }
+            didPrimeNetworkPermissions = true
+            let policyApplied = JailbreakNetworkPolicy.allowWiFiAndCellular(for: [
+                AppConfiguration.packageName,
+                AppConfiguration.extensionBundleID,
+            ])
+            NSLog("jailbreak wireless data policy applied: %@", policyApplied ? "yes" : "no")
+        #endif
+    }
+
     private func setup() {
         do {
             try UIProfileUpdateTask.configure()
@@ -78,9 +95,11 @@ class ApplicationDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCe
             NSLog("setup background task error: \(error.localizedDescription)")
         }
         Task {
-            if UIDevice.current.userInterfaceIdiom == .phone {
-                await requestNetworkPermission()
-            }
+            #if !JAILBREAK
+                if UIDevice.current.userInterfaceIdiom == .phone {
+                    await requestNetworkPermission()
+                }
+            #endif
             await setupBackground()
         }
     }
