@@ -7,13 +7,16 @@ private let logger = Logger(category: "RootHelper")
 
 private func resolveShell(_ hint: String) -> String {
     let fileManager = FileManager.default
-    if !hint.isEmpty, fileManager.isExecutableFile(atPath: hint) {
-        return hint
+    if !hint.isEmpty, hint.hasPrefix("/") {
+        let bootstrapHint = JailbreakConfiguration.bootstrapPath(hint)
+        if fileManager.isExecutableFile(atPath: bootstrapHint) {
+            return bootstrapHint
+        }
     }
     for candidate in JailbreakConfiguration.shellCandidates where fileManager.isExecutableFile(atPath: candidate) {
         return candidate
     }
-    return "/bin/sh"
+    return JailbreakConfiguration.bootstrapPath("/bin/sh")
 }
 
 private func resolveHomeDirectory(_ hint: String) -> String {

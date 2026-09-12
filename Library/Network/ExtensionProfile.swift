@@ -14,7 +14,7 @@ public class ExtensionProfile: ObservableObject {
 
     private let manager: NEVPNManager?
     private var connection: NEVPNConnection?
-    private var observer: Any?
+    private var notificationObserver: NotificationCenterObserver?
     private let isMock: Bool
 
     @Published public var status: NEVPNStatus
@@ -47,7 +47,7 @@ public class ExtensionProfile: ObservableObject {
 
     public func register() {
         guard !isMock, let manager else { return }
-        observer = NotificationCenter.default.addObserver(
+        let observer = NotificationCenter.default.addObserver(
             forName: NSNotification.Name.NEVPNStatusDidChange,
             object: manager.connection,
             queue: nil
@@ -74,6 +74,7 @@ public class ExtensionProfile: ObservableObject {
                 #endif
             }
         }
+        notificationObserver = NotificationCenterObserver(observer: observer)
     }
 
     private static func schedulePromoteOOMDraft() {
@@ -110,12 +111,6 @@ public class ExtensionProfile: ObservableObject {
             }
         }
     #endif
-
-    nonisolated deinit {
-        if let observer {
-            NotificationCenter.default.removeObserver(observer)
-        }
-    }
 
     private static func makeDefaultOnDemandRules() -> [NEOnDemandRule] {
         let rule = NEOnDemandRuleConnect()
@@ -338,5 +333,17 @@ public class ExtensionProfile: ObservableObject {
         manager.protocolConfiguration = tunnelProtocol
         manager.isEnabled = true
         try await manager.saveToPreferences()
+    }
+}
+
+private final class NotificationCenterObserver {
+    private let observer: Any
+
+    init(observer: Any) {
+        self.observer = observer
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(observer)
     }
 }

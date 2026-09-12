@@ -192,11 +192,7 @@ struct MainView: View {
     private struct AccessoryPillBackgroundModifier: ViewModifier {
         let cornerRadius: CGFloat
         func body(content: Content) -> some View {
-            if #available(iOS 26.0, *), !Variant.debugNoIOS26 {
-                content.glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            } else {
-                content.background(.bar, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            }
+            content.background(.bar, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
     }
 
@@ -386,11 +382,7 @@ struct MainView: View {
 
         private struct FABBackgroundModifier: ViewModifier {
             func body(content: Content) -> some View {
-                if #available(iOS 26.0, *), !Variant.debugNoIOS26 {
-                    content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                } else {
-                    content.background(.bar, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
+                content.background(.bar, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
         }
     }

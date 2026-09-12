@@ -2560,6 +2560,7 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"/var/jb/Applications/sing-box.app/Frameworks",
+					"@loader_path/.jbroot/Applications/sing-box.app/Frameworks",
 				);
 				MARKETING_VERSION = "1.13.0-alpha.21";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(BASE_PACKAGE_IDENTIFIER).helper";
@@ -2585,6 +2586,7 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"/var/jb/Applications/sing-box.app/Frameworks",
+					"@loader_path/.jbroot/Applications/sing-box.app/Frameworks",
 				);
 				MARKETING_VERSION = "1.13.0-alpha.21";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(BASE_PACKAGE_IDENTIFIER).helper";
@@ -4090,10 +4092,10 @@
 		};
 		3AC6CFCF2FC07CA200F5B0AE /* XCRemoteSwiftPackageReference "libghostty-spm" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Lakr233/libghostty-spm";
+			repositoryURL = "git@github.com:trimness4264/libghostty-spm.git";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.5.20260906;
+				branch = fix/xcode164-uiglass;
+				kind = branch;
 			};
 		};
 		3AC89DD32FCD9E3B002A14E8 /* XCRemoteSwiftPackageReference "DeviceKit" */ = {

@@ -1,5 +1,3 @@
-import Foundation
-import Libbox
 import os
 #if canImport(UIKit)
     import UIKit
@@ -24,7 +22,6 @@ public final class HangWatchdog {
         private static let maxReportsPerProcess = 3
     #endif
     private static let secondSnapshotDelay: TimeInterval = 10
-    private static let goroutineDumpTimeout: DispatchTimeInterval = .seconds(1)
 
     private struct RunLoopState {
         var busy = true
@@ -230,8 +227,7 @@ public final class HangWatchdog {
         stateLock.unlock()
 
         let nativeLog = NativeCrashReporter.liveReportText(thread: mainThread)
-        let goLog = goroutineDump()
-        let contents = CrashReportArtifactContents(goLog: goLog, nativeLog: nativeLog)
+        let contents = CrashReportArtifactContents(goLog: nil, nativeLog: nativeLog)
         let metadata = buildMetadata(snapshot: snapshot, capturedAt: now, duration: now - snapshot.busySince, resolved: false)
         do {
             let artifactURL = try CrashReportArchive.writeArchivedReport(contents: contents, date: Date(), metadata: metadata)
@@ -257,9 +253,6 @@ public final class HangWatchdog {
         let separator = "\n\n===== Snapshot 2 (after \(String(format: "%.1f", elapsed))s) =====\n\n"
         if let nativeLog = NativeCrashReporter.liveReportText(thread: mainThread) {
             activeReport.contents.nativeLog = (activeReport.contents.nativeLog ?? "") + separator + nativeLog
-        }
-        if let goLog = goroutineDump() {
-            activeReport.contents.goLog = (activeReport.contents.goLog ?? "") + separator + goLog
         }
         self.activeReport = activeReport
         rewriteActiveReport(activeReport)
@@ -347,39 +340,4 @@ public final class HangWatchdog {
         return (state, cpuUsage)
     }
 
-    private final class GoroutineDumpResult: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value: String?
-
-        func set(_ newValue: String) {
-            lock.lock()
-            value = newValue
-            lock.unlock()
-        }
-
-        func get() -> String? {
-            lock.lock()
-            defer {
-                lock.unlock()
-            }
-            return value
-        }
-    }
-
-    private func goroutineDump() -> String? {
-        let result = GoroutineDumpResult()
-        let semaphore = DispatchSemaphore(value: 0)
-        let thread = Thread {
-            result.set(LibboxGoroutineDump())
-            semaphore.signal()
-        }
-        thread.name = "io.nekohasekai.sing-box.hang-goroutine-dump"
-        thread.qualityOfService = .userInteractive
-        thread.start()
-        guard semaphore.wait(timeout: .now() + Self.goroutineDumpTimeout) == .success else {
-            logger.warning("goroutine dump timed out")
-            return nil
-        }
-        return result.get()
-    }
 }

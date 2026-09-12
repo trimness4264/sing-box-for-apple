@@ -12,15 +12,20 @@
             notify_register_dispatch("com.apple.iokit.hid.displayStatus", &displayToken, queue) { token in
                 var state: UInt64 = 0
                 notify_get_state(token, &state)
-                commandServer.recordScreenState(state == 1)
                 if state == 1 {
-                    commandServer.wakeNow()
+                    commandServer.wake()
+                } else {
+                    commandServer.pause()
                 }
             }
             notify_register_dispatch("com.apple.springboard.lockstate", &lockToken, queue) { token in
                 var state: UInt64 = 0
                 notify_get_state(token, &state)
-                commandServer.recordLockState(state == 1)
+                if state == 1 {
+                    commandServer.pause()
+                } else {
+                    commandServer.wake()
+                }
             }
         }
 

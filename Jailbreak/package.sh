@@ -15,7 +15,7 @@ APP_DISPLAY_NAME="sing-box JB"
 PRODUCT_NAME="sing-box"
 DERIVED_DATA="$REPO_ROOT/build/jailbreak/DerivedData"
 APP_SRC="$DERIVED_DATA/Build/Products/Release-iphoneos/$PRODUCT_NAME.app"
-DEB_ROOT="$REPO_ROOT/build/jailbreak/debroot"
+PACKAGE_BUILD_ROOT="$REPO_ROOT/build/jailbreak"
 ENT="$REPO_ROOT/Jailbreak"
 DAEMON_BIN="$DERIVED_DATA/Build/Products/Release-iphoneos/sfajb-roothelper"
 HELPER_PLIST="io.nekohasekai.sfajb.helper.plist"
@@ -27,7 +27,7 @@ fi
 echo "Building $PRODUCT_NAME (JAILBREAK, $BASE_PACKAGE_IDENTIFIER)"
 build() {
 	xcodebuild build \
-		"${XCODEBUILD_FLAGS[@]}" \
+		${XCODEBUILD_FLAGS[@]+"${XCODEBUILD_FLAGS[@]}"} \
 		-scheme SFI \
 		-configuration Release \
 		-destination 'generic/platform=iOS' \
@@ -59,12 +59,12 @@ echo "Packaging $PRODUCT_NAME $VERSION"
 echo "Building sfajb-roothelper daemon ($VERSION)"
 build_daemon() {
 	xcodebuild build \
-		"${XCODEBUILD_FLAGS[@]}" \
+		${XCODEBUILD_FLAGS[@]+"${XCODEBUILD_FLAGS[@]}"} \
 		-scheme JailbreakDaemon \
 		-configuration Release \
 		-destination 'generic/platform=iOS' \
 		-derivedDataPath "$DERIVED_DATA" \
-		SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) JAILBREAK' \
+		SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) JAILBREAK JAILBREAK_DAEMON' \
 		BASE_PACKAGE_IDENTIFIER="$BASE_PACKAGE_IDENTIFIER" \
 		MARKETING_VERSION="$VERSION" \
 		CODE_SIGNING_ALLOWED=NO
@@ -80,33 +80,16 @@ if [[ ! -f "$DAEMON_BIN" ]]; then
 fi
 ldid -S"$REPO_ROOT/JailbreakDaemon/RootHelper.entitlements" "$DAEMON_BIN"
 
-rm -rf "$DEB_ROOT"
-APP_DEST="$DEB_ROOT/var/jb/Applications/$PRODUCT_NAME.app"
-mkdir -p "$DEB_ROOT/var/jb/Applications" "$DEB_ROOT/var/jb/usr/libexec" "$DEB_ROOT/var/jb/Library/LaunchDaemons" "$DEB_ROOT/DEBIAN"
-cp -R "$APP_SRC" "$APP_DEST"
+# dpkg sorts '~' before everything, so 1.14.0~alpha.33 < 1.14.0 (the eventual release);
+# a literal '-' would parse as a Debian revision and sort *after* it, breaking upgrades.
+# A literal '~' in the replacement is tilde-expanded by bash 5, and a quoted or escaped one
+# is kept verbatim by the bash 3.2 that macOS ships as /bin/bash; only a variable works in both.
+TILDE="~"
+DEB_VERSION="${VERSION//-/$TILDE}"
+THEOS_ROOT="${THEOS:-$HOME/theos-roothide}"
+[[ -f "$THEOS_ROOT/makefiles/common.mk" ]] || { echo "error: Theos not found at $THEOS_ROOT" >&2; exit 1; }
 
-/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_DISPLAY_NAME" "$APP_DEST/Info.plist" 2>/dev/null \
-	|| /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_DISPLAY_NAME" "$APP_DEST/Info.plist"
-
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_DEST/Info.plist"
-
-# /Applications apps aren't registered with usernotificationsd by installd; this key is what
-# makes it accept and present local notifications. Redundant (and a private key) for the App Store build.
-/usr/libexec/PlistBuddy -c "Add :SBAppUsesLocalNotifications bool true" "$APP_DEST/Info.plist" 2>/dev/null \
-	|| /usr/libexec/PlistBuddy -c "Set :SBAppUsesLocalNotifications true" "$APP_DEST/Info.plist"
-
-rm -rf "$APP_DEST/SC_Info" "$APP_DEST/_CodeSignature" "$APP_DEST/embedded.mobileprovision" "$APP_DEST/Export.plist"
-find "$APP_DEST" -name '.DS_Store' -delete
-
-cp "$DAEMON_BIN" "$DEB_ROOT/var/jb/usr/libexec/sfajb-roothelper"
-chmod 755 "$DEB_ROOT/var/jb/usr/libexec/sfajb-roothelper"
-cp "$REPO_ROOT/JailbreakDaemon/$HELPER_PLIST" "$DEB_ROOT/var/jb/Library/LaunchDaemons/"
-
-# ldid signs per-binary: its recursive directory mode can't give nested code (the
-# appexes) distinct entitlement sets.
-sign() { echo "  sign $(basename "$1")"; ldid -S"$2" "$1"; }
-adhoc() { echo "  sign $(basename "$1") (ad-hoc)"; ldid -S "$1"; }
-
+THEOS_PACKAGE_DIR="$PACKAGE_BUILD_ROOT/packages"
 MAIN="sing-box"
 SIGN_TABLE="\
 PlugIns/Extension.appex/Extension|Extension.plist
@@ -115,49 +98,88 @@ PlugIns/WidgetExtension.appex/WidgetExtension|Widget.plist
 PlugIns/ShareExtension.appex/ShareExtension|Share.plist
 Extensions/IntentsExtension.appex/IntentsExtension|Intents.plist"
 
-is_entitled() {
-	[[ "$1" == "$APP_DEST/$MAIN" ]] && return 0
-	local rel
-	while IFS='|' read -r rel _; do
-		[[ -n "$rel" && "$1" == "$APP_DEST/$rel" ]] && return 0
-	done <<< "$SIGN_TABLE"
-	return 1
-}
+package_variant() {
+	local scheme="$1"
+	local architecture="$2"
+	local install_prefix="$3"
+	local deb_root="$PACKAGE_BUILD_ROOT/debroot-$scheme"
+	local theos_project="$PACKAGE_BUILD_ROOT/theos-project-$scheme"
+	local app_dest="$deb_root/Applications/$PRODUCT_NAME.app"
+	local daemon_dest="$deb_root/usr/libexec/sfajb-roothelper"
+	local plist_dest="$deb_root/Library/LaunchDaemons/$HELPER_PLIST"
+	local installed_app="$install_prefix/Applications/$PRODUCT_NAME.app"
+	local installed_plist="$install_prefix/Library/LaunchDaemons/$HELPER_PLIST"
+	local installed_daemon="$install_prefix/usr/libexec/sfajb-roothelper"
+	local bootstrap_path
+	local md5_prefix="${install_prefix#/}"
 
-while IFS= read -r macho; do
-	is_entitled "$macho" && continue
-	adhoc "$macho"
-done < <(find "$APP_DEST" -type f -perm +111 -exec sh -c 'file -b "$1" | grep -q "Mach-O" && echo "$1"' _ {} \;)
-
-while IFS='|' read -r rel ent; do
-	[[ -z "$rel" ]] && continue
-	if [[ -f "$APP_DEST/$rel" ]]; then
-		sign "$APP_DEST/$rel" "$ENT/$ent"
+	if [[ "$scheme" == "rootless" ]]; then
+		bootstrap_path="/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin"
 	else
-		echo "  skip $rel (not built)"
+		bootstrap_path="/usr/bin:/bin:/usr/sbin:/sbin"
 	fi
-done <<< "$SIGN_TABLE"
 
-sign "$APP_DEST/$MAIN" "$ENT/App.plist"
+	echo "Packaging $scheme ($architecture)"
+	rm -rf "$deb_root" "$theos_project"
+	mkdir -p "$deb_root/Applications" "$deb_root/usr/libexec" "$deb_root/Library/LaunchDaemons" "$deb_root/DEBIAN" "$theos_project"
+	cp -R "$APP_SRC" "$app_dest"
 
-export COPYFILE_DISABLE=1
-find "$DEB_ROOT" -print0 | xargs -0 xattr -c 2>/dev/null || true
-find "$DEB_ROOT" -name '._*' -delete
-find "$DEB_ROOT" -name '.DS_Store' -delete
+	/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_DISPLAY_NAME" "$app_dest/Info.plist" 2>/dev/null \
+		|| /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_DISPLAY_NAME" "$app_dest/Info.plist"
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$app_dest/Info.plist"
 
-INSTALLED_SIZE="$(du -ks "$DEB_ROOT/var" | cut -f1)"
-# dpkg sorts '~' before everything, so 1.14.0~alpha.33 < 1.14.0 (the eventual release);
-# a literal '-' would parse as a Debian revision and sort *after* it, breaking upgrades.
-# A literal '~' in the replacement is tilde-expanded by bash 5, and a quoted or escaped one
-# is kept verbatim by the bash 3.2 that macOS ships as /bin/bash; only a variable works in both.
-TILDE="~"
-DEB_VERSION="${VERSION//-/$TILDE}"
-cat > "$DEB_ROOT/DEBIAN/control" <<EOF
+	# /Applications apps aren't registered with usernotificationsd by installd; this key is what
+	# makes it accept and present local notifications. Redundant for the App Store build.
+	/usr/libexec/PlistBuddy -c "Add :SBAppUsesLocalNotifications bool true" "$app_dest/Info.plist" 2>/dev/null \
+		|| /usr/libexec/PlistBuddy -c "Set :SBAppUsesLocalNotifications true" "$app_dest/Info.plist"
+
+	rm -rf "$app_dest/SC_Info" "$app_dest/_CodeSignature" "$app_dest/embedded.mobileprovision" "$app_dest/Export.plist"
+	find "$app_dest" -name '.DS_Store' -delete
+
+	cp "$DAEMON_BIN" "$daemon_dest"
+	chmod 755 "$daemon_dest"
+	cp "$REPO_ROOT/JailbreakDaemon/$HELPER_PLIST" "$plist_dest"
+	/usr/libexec/PlistBuddy -c "Set :Program $installed_daemon" "$plist_dest"
+	/usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:PATH $bootstrap_path" "$plist_dest"
+
+	# ldid signs per-binary: its recursive directory mode can't give nested code
+	# (the appexes) distinct entitlement sets.
+	sign() { echo "  sign $(basename "$1")"; ldid -S"$2" "$1"; }
+	adhoc() { echo "  sign $(basename "$1") (ad-hoc)"; ldid -S "$1"; }
+	is_entitled() {
+		[[ "$1" == "$app_dest/$MAIN" ]] && return 0
+		local rel
+		while IFS='|' read -r rel _; do
+			[[ -n "$rel" && "$1" == "$app_dest/$rel" ]] && return 0
+		done <<< "$SIGN_TABLE"
+		return 1
+	}
+
+	while IFS= read -r macho; do
+		is_entitled "$macho" && continue
+		adhoc "$macho"
+	done < <(find "$app_dest" -type f -perm +111 -exec sh -c 'file -b "$1" | grep -q "Mach-O" && echo "$1"' _ {} \;)
+
+	while IFS='|' read -r rel ent; do
+		[[ -z "$rel" ]] && continue
+		if [[ -f "$app_dest/$rel" ]]; then
+			sign "$app_dest/$rel" "$ENT/$ent"
+		else
+			echo "  skip $rel (not built)"
+		fi
+	done <<< "$SIGN_TABLE"
+	sign "$app_dest/$MAIN" "$ENT/App.plist"
+
+	export COPYFILE_DISABLE=1
+	find "$deb_root" -print0 | xargs -0 xattr -c 2>/dev/null || true
+	find "$deb_root" -name '._*' -delete
+	find "$deb_root" -name '.DS_Store' -delete
+
+	cat > "$theos_project/control" <<EOF
 Package: $BASE_PACKAGE_IDENTIFIER
 Name: sing-box JB
 Version: $DEB_VERSION
-Architecture: iphoneos-arm64
-Installed-Size: $INSTALLED_SIZE
+Architecture: $architecture
 Description: The universal proxy platform.
 Maintainer: nekohasekai
 Author: nekohasekai
@@ -165,33 +187,84 @@ Section: Applications
 Depends: firmware (>= 15.0)
 EOF
 
-cat > "$DEB_ROOT/DEBIAN/postinst" <<EOF
+	cat > "$deb_root/DEBIAN/postinst" <<EOF
 #!/bin/sh
-PLIST=/var/jb/Library/LaunchDaemons/$HELPER_PLIST
+PLIST=$installed_plist
 launchctl bootout system "\$PLIST" 2>/dev/null
 launchctl bootstrap system "\$PLIST" 2>/dev/null
-uicache -p /var/jb/Applications/sing-box.app
+uicache -p $installed_app
 exit 0
 EOF
 
-cat > "$DEB_ROOT/DEBIAN/prerm" <<EOF
+	cat > "$deb_root/DEBIAN/prerm" <<EOF
 #!/bin/sh
-launchctl bootout system /var/jb/Library/LaunchDaemons/$HELPER_PLIST 2>/dev/null
+launchctl bootout system $installed_plist 2>/dev/null
 case "\$1" in
 	remove | purge)
-		uicache -u /var/jb/Applications/sing-box.app 2>/dev/null
+		uicache -u $installed_app 2>/dev/null
 		;;
 esac
 exit 0
 EOF
+	chmod 755 "$deb_root/DEBIAN/postinst" "$deb_root/DEBIAN/prerm"
 
-chmod 755 "$DEB_ROOT/DEBIAN/postinst" "$DEB_ROOT/DEBIAN/prerm"
+	# Theos converts XML plists for final packages. Do it before calculating
+	# md5sums so the checksums describe the files that are actually installed.
+	"$THEOS_ROOT/bin/convert_xml_plist.sh" -D "$deb_root"
+	( cd "$deb_root" && find . -type f ! -path './DEBIAN/*' | sed 's|^\./||' | LC_ALL=C sort \
+		| while IFS= read -r f; do
+			if [[ -n "$md5_prefix" ]]; then
+				printf '%s  %s/%s\n' "$(md5 -q "$f")" "$md5_prefix" "$f"
+			else
+				printf '%s  %s\n' "$(md5 -q "$f")" "$f"
+			fi
+		done ) > "$deb_root/DEBIAN/md5sums"
+	chmod 644 "$deb_root/DEBIAN/md5sums"
+	if [[ -n "$install_prefix" ]]; then
+		mkdir -p "${deb_root}tmp$install_prefix"
+	fi
 
-( cd "$DEB_ROOT" && find . -type f ! -path './DEBIAN/*' | sed 's|^\./||' | LC_ALL=C sort \
-	| while IFS= read -r f; do printf '%s  %s\n' "$(md5 -q "$f")" "$f"; done ) > "$DEB_ROOT/DEBIAN/md5sums"
-chmod 644 "$DEB_ROOT/DEBIAN/md5sums"
+	THEOS="$THEOS_ROOT" make -f "$ENT/theos-package.mk" internal-package-check before-package internal-package \
+		THEOS_PACKAGE_SCHEME="$scheme" \
+		THEOS_PROJECT_DIR="$theos_project" \
+		THEOS_STAGING_DIR="$deb_root" \
+		THEOS_PACKAGE_DIR="$THEOS_PACKAGE_DIR" \
+		THEOS_PACKAGE_NAME="$BASE_PACKAGE_IDENTIFIER" \
+		THEOS_PACKAGE_BASE_VERSION="$DEB_VERSION" \
+		FINALPACKAGE=1
 
-DEB_OUT="$REPO_ROOT/build/jailbreak/SFI-${VERSION}-iphoneos-arm64.deb"
+	local theos_deb_out="$THEOS_PACKAGE_DIR/${BASE_PACKAGE_IDENTIFIER}_${DEB_VERSION}_${architecture}.deb"
+	local deb_out="$PACKAGE_BUILD_ROOT/SFI-${VERSION}-${architecture}.deb"
+	[[ -f "$theos_deb_out" ]] || { echo "error: Theos did not create $theos_deb_out" >&2; exit 1; }
+	[[ "$(dpkg-deb --field "$theos_deb_out" Architecture)" == "$architecture" ]] \
+		|| { echo "error: unexpected package architecture for $scheme" >&2; exit 1; }
 
-dpkg-deb --root-owner-group -Zxz -z9 -Sextreme --build "$DEB_ROOT" "$DEB_OUT"
-echo "Built $DEB_OUT"
+	local package_paths
+	package_paths="$(dpkg-deb --contents "$theos_deb_out" | awk '{print $6}')"
+	if printf '%s\n' "$package_paths" | grep -Eq '^(\./)?(control|\.theos)(/|$)'; then
+		echo "error: Theos metadata leaked into $scheme package" >&2
+		exit 1
+	fi
+	if [[ "$scheme" == "rootless" ]]; then
+		printf '%s\n' "$package_paths" | grep -Eq '^(\./)?var/jb/Applications/sing-box\.app(/|$)' \
+			|| { echo "error: rootless application layout is missing" >&2; exit 1; }
+		if printf '%s\n' "$package_paths" | grep -Eq '^(\./)?(Applications|Library|usr)(/|$)'; then
+			echo "error: unprefixed payload leaked into rootless package" >&2
+			exit 1
+		fi
+	else
+		printf '%s\n' "$package_paths" | grep -Eq '^(\./)?Applications/sing-box\.app(/|$)' \
+			|| { echo "error: RootHide application layout is missing" >&2; exit 1; }
+		if printf '%s\n' "$package_paths" | grep -Eq '^(\./)?var/jb(/|$)'; then
+			echo "error: /var/jb payload leaked into RootHide package" >&2
+			exit 1
+		fi
+	fi
+
+	mv -f "$theos_deb_out" "$deb_out"
+	rm -rf "$deb_root" "$theos_project"
+	echo "Built $deb_out"
+}
+
+package_variant rootless iphoneos-arm64 /var/jb
+package_variant roothide iphoneos-arm64e ""
