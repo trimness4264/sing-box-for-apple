@@ -245,7 +245,7 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
                 let result = LibboxConnectionOwner()
                 result.userId = owner.userId
                 result.userName = owner.userName
-                result.processPath = owner.processPath
+                result.setProcessPaths(owner.processPaths.toStringIterator())
                 return result
             }
         #elseif JAILBREAK
@@ -264,7 +264,7 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
             let result = LibboxConnectionOwner()
             result.userId = owner.userId
             result.userName = owner.userName
-            result.processPath = owner.processPath
+            result.setProcessPaths(owner.processPaths.toStringIterator())
             return result
         #endif
         throw NSError(domain: "ExtensionPlatformInterface", code: 0, userInfo: [NSLocalizedDescriptionKey: String(localized: "Not implemented")])
@@ -800,6 +800,16 @@ public class ExtensionPlatformInterface: NSObject, LibboxPlatformInterfaceProtoc
                 NSLocalizedDescriptionKey: "bridge is not supported on this platform",
             ])
         #endif
+    }
+
+    public func usePlatformAutoRedirect() -> Bool {
+        false
+    }
+
+    public func createAutoRedirect(_: Data?, handler _: (any LibboxAutoRedirectHandlerProtocol)?) throws -> any LibboxAutoRedirectSessionProtocol {
+        throw NSError(domain: "ExtensionPlatformInterface", code: -1, userInfo: [
+            NSLocalizedDescriptionKey: "auto redirect is not supported on Apple platforms",
+        ])
     }
 
     #if os(macOS) || JAILBREAK
