@@ -4,6 +4,8 @@ import WidgetKit
 @main
 struct ExtensionBundle: WidgetBundle {
     var body: some Widget {
-        ServiceToggleControl()
+        if #available(iOSApplicationExtension 18.0, *) {
+            ServiceToggleControl()
+        }
     }
 }
